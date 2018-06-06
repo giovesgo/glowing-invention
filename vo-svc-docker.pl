@@ -642,7 +642,7 @@ INIT {
   $standard_release_file   = 'lsb-release';
 
   %docker_distros = ( 'centos' => ['7'],
-                      'debian' => ['7.7', '8', '9'],
+                      'debian' => ['8', '9'],
                       'fedora' => ['26', '27'],
                       'ubuntu' => ['14.04', '16.04']
                       );
@@ -708,7 +708,26 @@ INIT {
     # TODO - Complete specifics for 1.0 release
     #   Ubuntu 14.04 needs additional packages for aufs storage drivers
     %distro_specifics = (
-        'debian' => { 'search_cmd' => 'dpkg -s' },
+        'debian' => {
+            'search_cmd'  => 'dpkg -s',
+            'update_cmd'  => 'apt-get update -qq',
+            'remove_cmd'  => 'apt-get remove -qq -y',
+            'install_cmd' => 'apt-get install -y',
+            'add_rep_cmd' => 'add-apt-repository',
+            'pre_pkgs'    => [
+                'apt-transport-https', 'ca-certificates',
+                'curl', 'gnupg2', 'software-properties-common'
+            ],
+            'pre_cmds' => [
+'curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /tmp/docker.gpg',
+                'apt-key add /tmp/docker.gpg'
+            ],
+            'repo_string' =>
+'"deb [arch=amd64] https://download.docker.com/linux/debian {codename} stable"',
+            'docker_pkg'    => 'docker-ce',
+            'docker_old'    => [ 'docker', 'docker-engine', 'docker.io' ],
+            'not_installed' => qr/package '(.*)' is not installed/,
+        },
 
         'ubuntu' => {
             'search_cmd'  => 'dpkg -s',
