@@ -52,8 +52,6 @@ print "Checking the linux distro ... ";
 my $lx_distro  = distribution_name();
 my $lx_version = distribution_version();
 my $lx_name    = distribution_codename() || '';
-logger("Using distro $lx_distro $lx_version $lx_name");
-print "$lx_distro $lx_version $lx_name";
 
 unless ( $lx_distro ) {
   print YELLOW "Either your platform is not easily detectable or is not supported by this
@@ -64,13 +62,10 @@ unless ( $lx_distro ) {
   exit 1;
 }
 
+logger("Using distro $lx_distro $lx_version $lx_name");
+print "$lx_distro $lx_version";
 
-# Validate if distro supports the Docker community edition so we can
-# pull from the distro official repository
-# TODO:
-# - do a better job in general with different flavors
-# - check supported architectures and versions for each distro
-if ( grep ( /$_/i, @docker_distros ) ) {
+if ( grep(/$lx_version/, @{ $docker_distros{$lx_distro} }) ) {
     print GREEN " is supported.\n";
     print RESET;
 }
@@ -645,7 +640,12 @@ INIT {
 
   $release_files_directory = '/etc';
   $standard_release_file   = 'lsb-release';
-  @docker_distros          = qw(centos debian fedora ubuntu);
+
+  %docker_distros = ( 'centos' => ['7'],
+                      'debian' => ['7.7', '8', '9'],
+                      'fedora' => ['26', '27'],
+                      'ubuntu' => ['14.04', '16.04']
+                      );
 
   %release_files = (
         'gentoo-release'        => 'gentoo',
