@@ -644,7 +644,7 @@ INIT {
   %docker_distros = ( 'centos' => ['7'],
                       'debian' => ['8', '9'],
                       'fedora' => ['26', '27'],
-                      'ubuntu' => ['14.04', '16.04']
+                      'ubuntu' => ['16.04']
                       );
 
   %release_files = (
@@ -705,8 +705,6 @@ INIT {
         'pattern'             => ''
     );
 
-    # TODO - Complete specifics for 1.0 release
-    #   Ubuntu 14.04 needs additional packages for aufs storage drivers
     %distro_specifics = (
         'debian' => {
             'search_cmd'  => 'dpkg -s',
