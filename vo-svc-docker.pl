@@ -12,14 +12,14 @@ use File::Basename;
 use POSIX qw(:sys_wait_h);
 $| = 1;
 
-my $version = '0.1';
+my $version = '0.2';
 my ($script_name, $script_path, $script_suffix) = fileparse($0,'.pl');
 
 my $log = $script_path . $script_name . ".log";
 
 # Define this vars on global scope but initialize on INIT block to decluter script
 my ( $release_files_directory, $standard_release_file, %release_files, %data,
-    %version_match, @docker_distros, %distro_packages, %distro_specifics );
+    %version_match, %docker_distros, %distro_specifics );
 
 if ( $^O ne 'linux' ) {
     die "\n** I'm sorry. This is meant to run on a linux OS\n";
@@ -734,19 +734,19 @@ INIT {
         'fedora' => {
             'search_cmd'  => 'dnf list installed',
             'update_cmd'  => 'apt-get update',
-            'remove_cmd'  => 'apt-get remove -qq -y',
-            'install_cmd' => 'apt-get install -qq -y',
-            'add_rep_cmd' => 'add-apt-repository',
-            'pre_pkgs'    => [
-                'apt-transport-https', 'ca-certificates',
-                'curl',                'software-properties-common'
-            ],
-            'pre_cmds' =>
-'curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -',
-            'repo_string' =>
-'"deb [arch=amd64] https://download.docker.com/linux/ubuntu {codename} stable"',
+            'remove_cmd'  => 'dnf remove',
+            'install_cmd' => 'dnf -y install',
+            'add_rep_cmd' => 'dnf config-manager --add-repo',
+            'pre_pkgs'    => [ 'dnf-plugins-core' ],
+            'pre_cmds' => '',
+            'repo_string' => 'https://download.docker.com/linux/fedora/docker-ce.repo',
             'docker_pkg'    => 'docker-ce',
-            'docker_old'    => [ 'docker', 'docker-engine', 'docker.io' ],
+            'docker_old'    => [ 'docker', 'docker-client', 'docker-client-latest',
+                                 'docker-common', 'docker-latest',
+                                 'docker-latest-logrotate', 'docker-logrotate',
+                                 'docker-selinux', 'docker-engine-selinux',
+                                 'docker-engine'
+                                ],
             'not_installed' => qr/Error: No matching Packages to list/,
         },
 
