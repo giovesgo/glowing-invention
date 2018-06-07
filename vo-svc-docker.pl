@@ -175,7 +175,7 @@ sub spin_container {
       next if ($env eq 'db_location');
       $db_run_command .= ' -e ' . $env . '=' . $container_db_info->{$env};
     }
-    $db_run_command .= ' mysql';
+    $db_run_command .= ' mariadb';
 
     # Perform actual spinning of the container
     print "\n** Starting database container, please wait a minute ...\n";
