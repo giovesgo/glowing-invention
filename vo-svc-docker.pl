@@ -12,7 +12,7 @@ use File::Basename;
 use POSIX qw(:sys_wait_h);
 $| = 1;
 
-my $version = '0.2';
+my $version = '0.3';
 my ($script_name, $script_path, $script_suffix) = fileparse($0,'.pl');
 
 my $log = $script_path . $script_name . ".log";
@@ -36,9 +36,9 @@ print "Let's get started by checking if running as root ... ";
 my $pwuid = getpwuid($<);
 
 if ( $pwuid ne 'root' ) {
-    print RED "$pwuid\n";
-    print "\nI'm sorry $pwuid. This script has to be run by the root user\n";
-    print RESET;
+    print RED ON_WHITE "$pwuid\n";
+    print "\nI'm sorry $pwuid. This script has to be run by the root user";
+    print RESET "\n";
     exit 1;
 }
 else {
@@ -65,14 +65,16 @@ unless ( $lx_distro ) {
 logger("Using distro $lx_distro $lx_version $lx_name");
 print "$lx_distro $lx_version";
 
-if ( grep(/$lx_version/, @{ $docker_distros{$lx_distro} }) ) {
-    print GREEN " is supported.\n";
-    print RESET;
-}
-else {
-    print RED " NOT supported.\n";
-    print RESET;
-    exit 1;
+foreach my $distro_version ( @{ $docker_distros{$lx_distro} } ) {
+  if ( $lx_version =~ /$distro_version/ ) {
+      print GREEN " is supported.\n";
+      print RESET;
+  }
+  else {
+      print RED " NOT supported.\n";
+      print RESET;
+      exit 1;
+  }
 }
 
 # Find out if Docker is already installed using the distro's package manager
@@ -140,7 +142,7 @@ foreach my $container ( @containers ) {
   spin_container( $container );
 }
 
-print `docker ps -a`;
+print `docker ps -a --format "table {{.Names}}\t{{.Ports}}\t{{.Status}}\t{{.RunningFor}}"`;
 exit 0;
 
 # --- End main()
@@ -149,6 +151,7 @@ exit 0;
 sub spin_container {
   my $container = shift;
   my $run_command = 'docker run -d';
+  my $tcp_port;
 
   logger("** Starting container spin for $container");
 
@@ -166,11 +169,27 @@ sub spin_container {
     $db_run_command .= " --name $spun_containers->{'db_container_name'}";
 
     if ( $container_db_info->{'db_location'} eq 'local' ) {
-      $db_run_command .= ' -p 3306:3306';
+      print "   Checking port availability on host...\n";
+      $tcp_port = 3306;
+
+      # port_taken will return the name of process using the port if taken
+      my $port_used_by = port_taken( $tcp_port );
+
+      while ( $port_used_by ) {
+        print YELLOW "   Database port is being used by process $port_used_by\n";
+        print RESET;
+        $tcp_port++;
+        $tcp_port = get_user_response(
+                       {'prompt'   => 'Port number on local host to map to db port on container',
+                        'default'  => $tcp_port,
+                        'on_blank' => 'use_default'
+                       } );
+        $port_used_by = port_taken( $tcp_port );
+      }
     }
+    $spun_containers->{'db_mapped_port'} = $tcp_port;
+    $db_run_command .= ' -p ' . $tcp_port . ':3306';
 
-
-    logger("Information for database %{$container_db_info}");
     foreach my $env ( keys %{ $container_db_info } ) {
       next if ($env eq 'db_location');
       $db_run_command .= ' -e ' . $env . '=' . $container_db_info->{$env};
@@ -179,7 +198,14 @@ sub spin_container {
 
     # Perform actual spinning of the container
     print "\n** Starting database container, please wait a minute ...\n";
-    execute_and_validate("Spinning Database container", $db_run_command, 1);
+    my @result = execute_and_validate("Spinning Database container", $db_run_command, 0);
+
+    # If something goes wrong with the container is a good idea to delete so script
+    # be executed again with default values
+    if ( $result[0] eq 'fail' ) {
+      my $ignore = `docker rm $spun_containers->{'db_container_name'}`;
+    }
+
   }
 
   if ($container eq 'server') {
@@ -192,14 +218,31 @@ sub spin_container {
                   } );
     logger ("Zabbix server container name is '$spun_containers->{server_container_name}'");
     $server_run_command .= " --name $spun_containers->{'server_container_name'}";
-    $server_run_command .= ' -p 10051:10051';
+
+    print "   Checking port availability on host...\n";
+    $tcp_port = 10051;
+
+    # port_taken will return the name of process using the port if taken
+    my $port_used_by = port_taken( $tcp_port );
+
+    while ( $port_used_by ) {
+      print YELLOW "   Zabbix port is being used by process $port_used_by\n";
+      print RESET;
+      $tcp_port++;
+      $tcp_port = get_user_response(
+                     {'prompt'   => 'Port number on local host to map to Zabbix port on container',
+                      'default'  => $tcp_port,
+                      'on_blank' => 'use_default'
+                     } );
+      $port_used_by = port_taken( $tcp_port );
+    }
+
+    $spun_containers->{'zbx_mapped_port'} = $tcp_port;
+    $server_run_command .= ' -p ' . $tcp_port . ':10051';
 
     if ( $container_db_info->{'db_location'} eq 'local') {
       $server_run_command .= ' --link ' . $spun_containers->{'db_container_name'} .
                              ':mysql-server';
-    }
-    else {
-      print "\n** Need some information but my programmer has not built this part yet";
     }
 
     foreach my $env ( keys %{ $container_db_info } ) {
@@ -210,7 +253,11 @@ sub spin_container {
 
     # Perform actual spinning of the container
     print "\n** Starting Zabbix Server container, please wait a minute ...\n";
-    execute_and_validate("Spinning Zabbix Server container", $server_run_command, 1);
+    my @result = execute_and_validate("Spinning Zabbix Server container", $server_run_command, 0);
+
+    if ( $result[0] eq 'fail' ) {
+      my $ignore = `docker rm $spun_containers->{'server_container_name'}`;
+    }
   }
 
   if ($container eq 'frontend') {
@@ -223,7 +270,28 @@ sub spin_container {
                   } );
     logger ("Web Frontend Container name is '$spun_containers->{web_container_name}'");
     $web_run_command .= " --name $spun_containers->{'web_container_name'}";
-    $web_run_command .= ' -p 80:80';
+
+    print "   Checking port availability on host...\n";
+    $tcp_port = 80;
+
+    # port_taken will return the name of process using the port if taken
+    my $port_used_by = port_taken( $tcp_port );
+
+    while ( $port_used_by ) {
+      print YELLOW "   Web server port is being used by process $port_used_by\n";
+      print RESET;
+      $tcp_port++;
+      $tcp_port = get_user_response(
+                     {'prompt'   => 'Port number on local host to map to Web Server',
+                      'default'  => $tcp_port,
+                      'on_blank' => 'use_default'
+                     } );
+      $port_used_by = port_taken( $tcp_port );
+    }
+
+    $spun_containers->{'web_mapped_port'} = $tcp_port;
+    $web_run_command .= ' -p ' . $tcp_port . ':80';
+
     $web_run_command .= ' --link ' .
                         $spun_containers->{'server_container_name'} . ':zabbix-server';
 
@@ -231,9 +299,6 @@ sub spin_container {
       # At this point there must be a container for the database and zabbix server
       $web_run_command .= ' --link ' .
                           $spun_containers->{'db_container_name'} . ':mysql-server';
-    }
-    else {
-      print "\n** Need some information but my programmer has not built this part yet";
     }
 
     foreach my $env ( keys %{ $container_db_info } ) {
@@ -244,7 +309,11 @@ sub spin_container {
 
     # Perform actual spinning of the container
     print "\n** Starting Web Frontend container, please wait a minute ...\n";
-    execute_and_validate("Spinning Zabbix Server container", $web_run_command, 1);
+    my @result = execute_and_validate("Spinning Zabbix Server container", $web_run_command, 0);
+
+    if ( $result[0] eq 'fail' ) {
+      my $ignore = `docker rm $spun_containers->{'web_container_name'}`;
+    }
   }
 
 }
@@ -328,6 +397,7 @@ sub execute_and_validate {
     if ( $? == 0 ) {
         print GREEN "\n $stage ok\n";
         print RESET;
+        return ('ok', $out);
     }
     else {
         print RED;
@@ -342,13 +412,32 @@ sub execute_and_validate {
             printf "finished with value %d\n", $? >> 8;
         }
 
-        if ($die_on_error) {
+        if ( $die_on_error ) {
             print "Fatal error $stage: $out $! $@\n";
             print "Check log $log\n";
             print RESET;
             exit 1;
         }
+        else {
+          return ('fail',$out, $@);
+        }
     }
+}
+
+sub port_taken {
+  my $port = shift;
+  my $port_string = ':'. $port . '\s';
+  my $chk_cmd = 'netstat -anp | grep -i listen | egrep "'. $port_string . '"';
+
+  my $port_used = `$chk_cmd`;
+  logger("Checking port availability with '$chk_cmd' yields '$port_used'");
+
+  # If port is available, $port_avail should be empty.
+  if ( $port_used ) {
+    my @usage_tokens = split('\s+', $port_used);
+    return $usage_tokens[-1];
+  }
+  return 0;
 }
 
 sub ask_db_config {
@@ -402,6 +491,7 @@ sub ask_db_config {
     my $db_root_passwrd = get_user_response( $db_var_config->{'MYSQL_ROOT_PASSWORD'} );
     if ( $db_root_passwrd eq '_blank_' ) {
       print YELLOW "  Using empty password for user root\n";
+      print RESET;
       $container_db_info->{'MYSQL_ROOT_PASSWORD'} = "";
       $container_db_info->{'MYSQL_ALLOW_EMPTY_PASSWORD'} = "true";
     }
